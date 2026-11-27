@@ -1,0 +1,28 @@
+{
+    "geode": "6.0.0",
+    "gd": {
+        "win": "2.2091",
+        "android": "2.2091",
+        "mac": "2.2091",
+        "ios": "2.2091"
+    },
+    "id": "vzuxz.session-recap",
+    "name": "Session Recap",
+    "version": "v1.0.0",
+    "developer": "vzuxz",
+    "description": "Shows how your session went when you leave a level.",
+    "tags": ["utility", "interface"],
+    "links": {
+        "source": "https://github.com/vzuxz/SessionRecap"
+    },
+    "settings": {
+        "min-attempts": {
+            "type": "int",
+            "name": "Minimum attempts",
+            "description": "Only show the recap after at least this many attempts.",
+            "default": 3,
+            "min": 1,
+            "max": 100
+        }
+    }
+}
