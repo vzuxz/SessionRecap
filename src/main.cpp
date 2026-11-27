@@ -1,22 +1,15 @@
 #include <Geode/Geode.hpp>
+#include <Geode/modify/LevelInfoLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
-#include <Geode/ui/PopupManager.hpp>
+#include <asp/time/SystemTime.hpp>
+#include "Session.hpp"
+#include "SessionsPopup.hpp"
 
 using namespace geode::prelude;
 
-static std::string formatTime(double seconds) {
-    auto total = static_cast<int>(seconds);
-    auto h = total / 3600;
-    auto m = total % 3600 / 60;
-    auto s = total % 60;
-
-    if (h > 0) return fmt::format("{}h {:02}m", h, m);
-    if (m > 0) return fmt::format("{}m {:02}s", m, s);
-    return fmt::format("{}s", s);
-}
-
 class $modify(RecapPlayLayer, PlayLayer) {
     struct Fields {
+        int64_t m_startTime = 0;
         double m_playTime = 0.0;
         int m_startBest = 0;
         int m_sessionBest = -1;
@@ -27,6 +20,7 @@ class $modify(RecapPlayLayer, PlayLayer) {
 
     bool init(GJGameLevel* level, bool dontCreateObjects) {
         if (!PlayLayer::init(level, dontCreateObjects)) return false;
+        m_fields->m_startTime = asp::time::SystemTime::now().to_time_t();
         m_fields->m_startBest = level->m_normalPercent.value();
         return true;
     }
@@ -67,38 +61,56 @@ class $modify(RecapPlayLayer, PlayLayer) {
     }
 
     void onQuit() {
-        showRecap();
+        recordSession();
         PlayLayer::onQuit();
     }
 
-    void showRecap() {
+    void recordSession() {
+        if (m_level->m_levelType == GJLevelType::Editor || m_level->m_levelType == GJLevelType::Main) return;
+
+        auto levelID = m_level->m_levelID.value();
         auto fields = m_fields.self();
-        if (m_attempts < Mod::get()->getSettingValue<int64_t>("min-attempts")) return;
+        if (levelID <= 0 || fields->m_playTime < 1.0) return;
 
-        auto text = fmt::format(
-            "<cy>{}</c> attempts in <cy>{}</c>",
-            m_attempts,
-            formatTime(fields->m_playTime)
-        );
-
-        auto best = m_level->m_normalPercent.value();
-        if (fields->m_completed) {
-            text += "\n<cg>Completed!</c>";
-        } else if (best > fields->m_startBest) {
-            text += fmt::format("\nNew best: <cg>{}%</c> (was {}%)", best, fields->m_startBest);
-        } else if (fields->m_sessionBest >= 0) {
-            text += fmt::format("\nBest run: <cg>{}%</c>", fields->m_sessionBest);
-        }
+        Session session;
+        session.time = fields->m_startTime;
+        session.attempts = m_attempts;
+        session.playTime = fields->m_playTime;
+        session.best = fields->m_sessionBest;
+        session.oldBest = fields->m_startBest;
+        session.newBest = m_level->m_normalPercent.value();
+        session.completed = fields->m_completed;
 
         auto worst = std::max_element(fields->m_deaths.begin(), fields->m_deaths.end(), [](auto& a, auto& b) {
             return a.second < b.second;
         });
-        if (worst != fields->m_deaths.end() && worst->second > 1) {
-            text += fmt::format("\nMost deaths: <cr>{}%</c> ({}x)", worst->first, worst->second);
+        if (worst != fields->m_deaths.end()) {
+            session.deathPercent = worst->first;
+            session.deathCount = worst->second;
         }
 
-        auto popup = PopupManager::get().alert("Session Recap", text);
-        popup.setPersistent();
-        popup.showQueue();
+        saveSession(levelID, session);
+    }
+};
+
+class $modify(LevelInfoLayer) {
+    bool init(GJGameLevel* level, bool challenge) {
+        if (!LevelInfoLayer::init(level, challenge)) return false;
+
+        auto menu = getChildByID("left-side-menu");
+        if (!menu) return true;
+
+        auto sprite = CircleButtonSprite::createWithSpriteFrameName("GJ_timeIcon_001.png");
+        if (auto copy = menu->getChildByID("copy-button")) {
+            sprite->setScale(copy->getContentHeight() / sprite->getContentHeight());
+        }
+
+        auto button = CCMenuItemExt::createSpriteExtra(sprite, [this](auto) {
+            if (auto popup = SessionsPopup::create(m_level)) popup->show();
+        });
+        button->setID("sessions-button"_spr);
+        menu->addChild(button);
+        menu->updateLayout();
+        return true;
     }
 };
